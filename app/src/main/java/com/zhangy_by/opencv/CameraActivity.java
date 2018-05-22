@@ -1,6 +1,7 @@
 package com.zhangy_by.opencv;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
@@ -13,6 +14,17 @@ import org.opencv.android.CameraBridgeViewBase;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.core.Mat;
+import org.opencv.core.MatOfRect;
+import org.opencv.core.Rect;
+import org.opencv.core.Scalar;
+import org.opencv.core.Size;
+import org.opencv.imgproc.Imgproc;
+import org.opencv.objdetect.CascadeClassifier;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 
 /**
  * Created by zhangy-by on 2018/5/17.
@@ -22,11 +34,39 @@ public class CameraActivity extends AppCompatActivity implements CameraBridgeVie
 
     private CameraBridgeViewBase bridgeViewBase;
 
+    float mRelativeFaceSize = 0.2f;
+    int mAbsoluteFaceSize = 0;
+    CascadeClassifier mJavaDetector;
+    File mCascadeFile;
+
+
     private BaseLoaderCallback callback = new BaseLoaderCallback(this) {
         @Override
         public void onManagerConnected(int status) {
             switch (status) {
                 case LoaderCallbackInterface.SUCCESS:
+                    try {
+                        // 加载人脸特征文件
+                        InputStream is = getResources().openRawResource(R.raw.lbpcascade_frontalface);
+                        File cascadeDir = getDir("cascade", Context.MODE_PRIVATE);
+                        mCascadeFile = new File(cascadeDir, "lbpcascade_frontalface.xml");
+                        FileOutputStream os = new FileOutputStream(mCascadeFile);
+
+                        byte[] buffer = new byte[4096];
+                        int bytesRead;
+                        while ((bytesRead = is.read(buffer)) != -1) {
+                            os.write(buffer, 0, bytesRead);
+                        }
+                        is.close();
+                        os.close();
+
+                        mJavaDetector = new CascadeClassifier(mCascadeFile.getAbsolutePath());
+
+                        cascadeDir.delete();
+
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
                     bridgeViewBase.enableView();
                     break;
                 default:
@@ -65,7 +105,25 @@ public class CameraActivity extends AppCompatActivity implements CameraBridgeVie
 
     @Override
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
-        return inputFrame.rgba();
+        Mat gray = inputFrame.gray();
+        Mat rgba = inputFrame.rgba();
+        if (mAbsoluteFaceSize == 0) {
+            int height = gray.rows();
+            if (Math.round(height * mRelativeFaceSize) > 0) {
+                mAbsoluteFaceSize = Math.round(height * mRelativeFaceSize);
+            }
+        }
+
+        MatOfRect faces = new MatOfRect();//脸的矩阵
+        if (mJavaDetector != null) {
+            mJavaDetector.detectMultiScale(gray, faces, 1.1, 2, 2, new Size(mAbsoluteFaceSize, mRelativeFaceSize), new Size());
+        }
+
+        Rect[] array = faces.toArray();
+        for (int i = 0; i < array.length; i++) {
+            Imgproc.rectangle(rgba, array[i].tl(), array[i].br(), new Scalar(0, 255, 0, 255), 3);
+        }
+        return rgba;
     }
 
     @Override
